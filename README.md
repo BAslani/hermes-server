@@ -1,132 +1,99 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# hermes-server
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+The online co-op relay for Hermes. Two players share a room: one flies the
+interceptor drone, the other the F-14. The host's browser runs the game rules;
+this server only pairs the players and forwards what they send each other. It
+never runs game logic and keeps nothing on disk.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Run
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ pnpm install
+```sh
+pnpm install
+pnpm start:dev        # watch mode, http://localhost:3001
+pnpm build && pnpm start:prod
 ```
 
-## Compile and run the project
-
-```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+```sh
+pnpm test             # unit tests (room service, message parsing)
+pnpm test:e2e         # two real ws clients through a running server
+pnpm lint
 ```
 
-## Run tests
+Docker:
 
-```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+```sh
+docker build -t hermes-server .
+docker run -p 3001:3001 -e ALLOWED_ORIGINS=https://hermes.example hermes-server
 ```
 
-## Deployment
+## Environment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+| Variable          | Default                 | Meaning                                                                 |
+| ----------------- | ----------------------- | ----------------------------------------------------------------------- |
+| `PORT`            | `3001`                  | HTTP and WebSocket port.                                                |
+| `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated origins allowed to open a WebSocket (others get a 403). |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Endpoints
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+- `GET /health` → `{ "ok": true, "rooms": <number> }`
+- `ws://<host>:<port>/ws`: the co-op socket (plain WebSocket, not socket.io).
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Protocol
 
-## Observability
+Every message is a JSON text frame shaped `{ "type": ..., ...payload }`.
+Vectors are `[x, y, z]` and quaternions `[x, y, z, w]`, in metres from the
+target (the game frame).
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+### Rooms
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+| Type          | Direction        | Payload                                                       |
+| ------------- | ---------------- | ------------------------------------------------------------- |
+| `create`      | client → server  | `{ scenario, role }` (`role`: `"drone"` or `"jet"`)           |
+| `created`     | server → creator | `{ code, playerId }`. The creator is the host.                |
+| `join`        | client → server  | `{ code, role }`                                              |
+| `joined`      | server → joiner  | `{ code, playerId, scenario, hostRole }`                      |
+| `leave`       | client → server  | `{}`: leave the room but keep the socket                      |
+| `peer-joined` | server → both    | `{ role }`: the other player's role                           |
+| `peer-left`   | server → host    | `{ role }`: the guest left; the room stays open               |
+| `room-closed` | server → players | `{ reason: "host-left" \| "expired" }`                        |
+| `error`       | server → sender  | `{ code, message }`                                           |
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+Room codes are 6 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O
+or 1/I); `join` accepts lower case. A room holds a host and a guest with
+different roles. If the host leaves, the room closes. Rooms idle for 10
+minutes (no create, join or relayed message) expire.
 
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+Error codes: `room-not-found`, `room-full`, `role-taken`, `bad-message` (bad
+JSON or shape, over 32 KB, already in a room, or not in a room).
 
-```bash
-$ npx @nestjs/observe link
-```
+### Relay
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+The server forwards these to the other player unchanged, adding
+`from: "drone" | "jet"` (the sender's role). Nothing is sent back to the
+sender. Without a peer in the room, the message is dropped.
 
-Or do it by hand:
+| Type       | Direction         | Rate    | Payload                                                         |
+| ---------- | ----------------- | ------- | --------------------------------------------------------------- |
+| `state`    | either → other    | ~15 Hz  | `{ position, velocity, orientation, t }`                        |
+| `fire`     | guest → host      | on fire | `{ weapon: "missile" \| "gun", position, velocity, forward, target?, launcher? }` |
+| `snapshot` | host → guest      | ~10 Hz  | `{ state }`: the match state, any JSON object                   |
+| `event`    | host → guest      | on event | `{ event }`: a game event, any JSON object                     |
+| `start`    | host → guest      | once    | `{ seed, scenario }`                                            |
+| `restart`  | host → guest      | once    | `{ seed, scenario }`                                            |
 
-```bash
-$ pnpm install @nestjs/observe
-```
+In `fire`, `position` is the launch point and `velocity` the shooter's
+velocity (`from` is taken by the sender role). `target` is a threat id or
+null; `launcher` is a launcher index for a missile aimed at one.
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+The server drops (and logs) `snapshot`, `event`, `start` and `restart` from the
+guest and `fire` from the host.
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+### Limits
 
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Messages over 32 KB get a `bad-message` error; frames over 64 KB close the
+  socket (code 1009).
+- Unknown fields are refused, so add them to `src/protocol.ts` before sending
+  them.
+- 60 messages per second per connection; the rest of that second is dropped.
+- The server pings every 15 s. A connection that misses a pong is closed and
+  leaves its room.
