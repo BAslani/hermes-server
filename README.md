@@ -9,7 +9,7 @@ never runs game logic and keeps nothing on disk.
 
 ```sh
 pnpm install
-pnpm start:dev        # watch mode, http://localhost:3001
+pnpm start:dev        # watch mode, http://localhost:4000
 pnpm build && pnpm start:prod
 ```
 
@@ -23,14 +23,14 @@ Docker:
 
 ```sh
 docker build -t hermes-server .
-docker run -p 3001:3001 -e ALLOWED_ORIGINS=https://hermes.example hermes-server
+docker run -p 4000:4000 -e ALLOWED_ORIGINS=https://hermes.example hermes-server
 ```
 
 ## Environment
 
 | Variable          | Default                 | Meaning                                                                 |
 | ----------------- | ----------------------- | ----------------------------------------------------------------------- |
-| `PORT`            | `3001`                  | HTTP and WebSocket port.                                                |
+| `PORT`            | `4000`                  | HTTP and WebSocket port.                                                |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated origins allowed to open a WebSocket (others get a 403). |
 
 ## Endpoints

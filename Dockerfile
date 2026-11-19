@@ -11,10 +11,10 @@ RUN pnpm build && pnpm prune --prod
 
 FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production PORT=3001
+ENV NODE_ENV=production PORT=4000
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 USER node
-EXPOSE 3001
+EXPOSE 4000
 CMD ["node", "dist/main.js"]
