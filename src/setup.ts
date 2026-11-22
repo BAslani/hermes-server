@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';
-import { Config } from './config.js';
+import { Config, isAllowedOrigin } from './config.js';
 import { rawMessageParser } from './coop.gateway.js';
 import { MAX_FRAME_BYTES } from './protocol.js';
 
@@ -12,7 +12,14 @@ export function configureApp(app: INestApplication, config: Config) {
       maxPayload: MAX_FRAME_BYTES,
     }),
   );
-  app.enableCors({ origin: config.allowedOrigins });
+  // The same origins as the socket, for /health.
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) =>
+      callback(null, origin === undefined || isAllowedOrigin(origin, config)),
+  });
   app.enableShutdownHooks();
   return app;
 }
